@@ -19,10 +19,19 @@ app.add_middleware(
 @app.post("/extract")
 async def extract_features(request: Request):
     raw = await request.json()
+    SCREEN_W, SCREEN_H = None, None
 
     # handle format fleksibel
     if isinstance(raw, dict):
+        SCREEN_W = raw.get("screen_w", 0)
+        SCREEN_H = raw.get("screen_h", 0)
         raw = raw.get("data", [])
+    elif isinstance(raw, list):
+        print(f"Received list of {raw}")
+        return {"error": "Expected a JSON object key."}
+    else:
+        print(f"Received unexpected data format: {raw}")
+        return {"error": "Invalid data format."}
 
     df = pd.DataFrame(raw)
 
@@ -32,9 +41,9 @@ async def extract_features(request: Request):
     df = df.sort_values(by="timestamp").reset_index(drop=True)
 
     # normalisasi (optional, sesuaikan resolusi)
-    SCREEN_W, SCREEN_H = 1920, 1080
-    df['x'] = df['gaze_x'] / SCREEN_W
-    df['y'] = df['gaze_y'] / SCREEN_H
+    # SCREEN_W, SCREEN_H = 1920, 1080
+    df['x'] = df['gaze_x'] / int(SCREEN_W)
+    df['y'] = df['gaze_y'] / int(SCREEN_H)
 
     df['dx'] = df['x'].diff()
     df['dy'] = df['y'].diff()
@@ -74,6 +83,11 @@ async def extract_features(request: Request):
         })
 
     # =============================
+    # 📏 DISTANCE
+    # =============================
+    df['distance'] = np.sqrt(df['dx']**2 + df['dy']**2)
+
+    # =============================
     # ⚡ VELOCITY & DISTANCE
     # =============================
     df['velocity'] = np.sqrt(df['dx']**2 + df['dy']**2) / (df['dt'] + 1e-6)
@@ -95,6 +109,43 @@ async def extract_features(request: Request):
         "fixation_ratio": float(df['fixation'].mean()),
         "max_velocity": float(df['velocity'].max())
     }
+
+    # =============================
+    # 📊 STATISTICS
+    # =============================
+    avg_velocity = float(df['velocity'].mean())
+
+    fixation_ratio = float(df['fixation'].mean() * 100)
+
+    total_distance = float(df['distance'].sum())
+
+    # =============================
+    # 🎯 MOST VIEWED AREA
+    # =============================
+
+    def get_area(x, y):
+        if x < 1920/3:
+            h = "Kiri"
+        elif x < 2*1920/3:
+            h = "Tengah"
+        else:
+            h = "Kanan"
+
+        if y < 1080/3:
+            v = "Atas"
+        elif y < 2*1080/3:
+            v = "Tengah"
+        else:
+            v = "Bawah"
+
+        return f"{h} {v}"
+
+    df['area'] = df.apply(
+        lambda row: get_area(row['gaze_x'], row['gaze_y']),
+        axis=1
+    )
+
+    most_viewed_area = df['area'].mode()[0]
 
     # =============================
     # 🔥 WINDOWING (5 detik)
@@ -141,5 +192,11 @@ async def extract_features(request: Request):
         "timeseries": {
             "timestamp": df_down['timestamp'].tolist(),
             "velocity": df_down['velocity'].tolist()
+        },
+        "statistics": {
+            "avg_velocity": avg_velocity,
+            "fixation_ratio": fixation_ratio,
+            "total_distance": total_distance,
+            "most_viewed_area": most_viewed_area
         }
     }
