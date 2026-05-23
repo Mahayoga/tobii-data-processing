@@ -5,6 +5,7 @@ import numpy as np
 from seaborn import heatmap
 import random
 
+SCREEN_W, SCREEN_H = None, None
 app = FastAPI()
 
 # Biar bisa diakses dari frontend
@@ -19,12 +20,11 @@ app.add_middleware(
 @app.post("/extract")
 async def extract_features(request: Request):
     raw = await request.json()
-    SCREEN_W, SCREEN_H = None, None
 
     # handle format fleksibel
     if isinstance(raw, dict):
-        SCREEN_W = raw.get("screen_w", 0)
-        SCREEN_H = raw.get("screen_h", 0)
+        SCREEN_W = int(raw.get("screen_w", 0))
+        SCREEN_H = int(raw.get("screen_h", 0))
         raw = raw.get("data", [])
     elif isinstance(raw, list):
         print(f"Received list of {raw}")
@@ -124,16 +124,16 @@ async def extract_features(request: Request):
     # =============================
 
     def get_area(x, y):
-        if x < 1920/3:
+        if x < SCREEN_W/3:
             h = "Kiri"
-        elif x < 2*1920/3:
+        elif x < 2*SCREEN_W/3:
             h = "Tengah"
         else:
             h = "Kanan"
 
-        if y < 1080/3:
+        if y < SCREEN_H/3:
             v = "Atas"
-        elif y < 2*1080/3:
+        elif y < 2*SCREEN_H/3:
             v = "Tengah"
         else:
             v = "Bawah"
