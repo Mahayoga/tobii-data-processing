@@ -4,6 +4,25 @@ import pandas as pd
 import numpy as np
 from seaborn import heatmap
 import random
+import joblib
+from collections import Counter
+
+# ==========================================
+# CONFIG
+# ==========================================
+
+DATASET_FOLDER = "datasets"
+
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
+
+GRID_SIZE = 3
+
+FIXATION_THRESHOLD = 0.02
+WINDOW_SECONDS = 10
+SAMPLING_RATE = 3
+
+WINDOW_SIZE = WINDOW_SECONDS * SAMPLING_RATE
 
 SCREEN_W, SCREEN_H = None, None
 app = FastAPI()
@@ -16,6 +35,131 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ==========================================
+# LOAD MODEL
+# ==========================================
+feature_names = ['avg_velocity', 'max_velocity', 'std_velocity', 'total_distance', 'fixation_ratio', 'unique_area_count']
+# Load model dan scaler
+model = joblib.load('model/svm_anxiety_model.pkl')
+scaler = joblib.load('model/svm_anxiety_scaler.pkl')
+
+# ==========================================
+# AREA GRID
+# ==========================================
+
+def get_area(x, y):
+
+    col = int(x // (SCREEN_WIDTH / GRID_SIZE))
+    row = int(y // (SCREEN_HEIGHT / GRID_SIZE))
+
+    return f"{row}_{col}"
+
+# ==========================================
+# FEATURE EXTRACTION
+# ==========================================
+
+def extract_features_from_web(data):
+
+    df = pd.DataFrame(data)
+
+    # ambil hanya gaze valid
+    df = df[['gaze_x', 'gaze_y', 'timestamp']]
+
+    # ======================================
+    # NORMALIZATION
+    # ======================================
+
+    df['gaze_x'] = df['gaze_x'] / SCREEN_WIDTH
+    df['gaze_y'] = df['gaze_y'] / SCREEN_HEIGHT
+
+    # ======================================
+    # DELTA
+    # ======================================
+
+    df['dx'] = df['gaze_x'].diff()
+    df['dy'] = df['gaze_y'].diff()
+
+    df['dt'] = df['timestamp'].diff() / 1000
+
+    # hapus NaN
+    df = df.dropna()
+
+    # ======================================
+    # DISTANCE
+    # ======================================
+
+    df['distance'] = np.sqrt(
+        df['dx']**2 +
+        df['dy']**2
+    )
+
+    # ======================================
+    # VELOCITY
+    # ======================================
+
+    df['velocity'] = df['distance'] / df['dt']
+
+    # hapus infinite
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna()
+
+    # ======================================
+    # FIXATION
+    # ======================================
+
+    df['fixation'] = df['velocity'] < FIXATION_THRESHOLD
+
+    # ======================================
+    # AREA
+    # ======================================
+
+    df['area'] = df.apply(
+        lambda row: get_area(
+            row['gaze_x'] * SCREEN_WIDTH,
+            row['gaze_y'] * SCREEN_HEIGHT
+        ),
+        axis=1
+    )
+
+    # ======================================
+    # FEATURES
+    # ======================================
+
+    all_window_features = []
+
+    for start in range(0, len(df), WINDOW_SIZE):
+
+        window_df = df.iloc[start:start + WINDOW_SIZE]
+
+        # skip kalau terlalu sedikit
+        if len(window_df) < WINDOW_SIZE // 2:
+            continue
+
+        features = [
+
+            # "avg_velocity":
+                window_df['velocity'].mean(),
+
+            # "max_velocity":
+                window_df['velocity'].max(),
+
+            # "std_velocity":
+                window_df['velocity'].std(),
+
+            # "total_distance":
+                window_df['distance'].sum(),
+
+            # "fixation_ratio":
+                window_df['fixation'].mean(),
+
+            # "unique_area_count":
+                window_df['area'].nunique()
+        ]
+
+        all_window_features.append(features)
+
+    return all_window_features
 
 @app.post("/extract")
 async def extract_features(request: Request):
@@ -200,3 +344,36 @@ async def extract_features(request: Request):
             "most_viewed_area": most_viewed_area
         }
     }
+
+@app.post("/predict")
+async def predict(request: Request):
+    raw = await request.json()
+
+    try:
+        window_features = extract_features_from_web(raw)
+
+        # Transform dengan scaler
+        data_baru_scaled = scaler.transform(window_features)
+
+        # Prediksi
+        hasil = model.predict(data_baru_scaled)
+        proba = model.predict_proba(data_baru_scaled)
+
+        hasil_akhir = Counter(hasil).most_common(1)[0][0]
+        mean_proba = np.mean(proba, axis=0)
+        confidence = np.max(mean_proba) * 100
+
+        # print(f"Processed: {hasil}")
+
+        return {
+            'hasil_prediksi': int(hasil_akhir),
+            'confidence': round(confidence, 2),
+            'detail_probabilitas': {
+                'normal': '0',
+                'sedang': round(mean_proba[0] * 100, 2),
+                'tinggi': round(mean_proba[1] * 100, 2)
+            }
+        }
+
+    except Exception as e:
+        print(f"Error: {e}")
