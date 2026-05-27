@@ -191,7 +191,7 @@ for file_name in os.listdir(DATASET_FOLDER):
 dataset_df = pd.DataFrame(all_features)
 
 dataset_df.to_csv(
-    "eye_tracking_dataset.csv",
+    "eye_tracking_dataset_2.csv",
     index=False
 )
 

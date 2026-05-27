@@ -41,8 +41,8 @@ app.add_middleware(
 # ==========================================
 feature_names = ['avg_velocity', 'max_velocity', 'std_velocity', 'total_distance', 'fixation_ratio', 'unique_area_count']
 # Load model dan scaler
-model = joblib.load('model/svm_anxiety_model.pkl')
-scaler = joblib.load('model/svm_anxiety_scaler.pkl')
+model = joblib.load('model/rfc_anxiety_model.pkl')
+scaler = joblib.load('model/rfc_anxiety_scaler.pkl')
 
 # ==========================================
 # AREA GRID
@@ -352,27 +352,45 @@ async def predict(request: Request):
     try:
         window_features = extract_features_from_web(raw)
 
-        # Transform dengan scaler
+        # scaling
         data_baru_scaled = scaler.transform(window_features)
 
-        # Prediksi
+        # prediksi per window
         hasil = model.predict(data_baru_scaled)
+
+        # probabilitas per window
         proba = model.predict_proba(data_baru_scaled)
 
+        # majority voting
         hasil_akhir = Counter(hasil).most_common(1)[0][0]
+
+        # confidence rata-rata
         mean_proba = np.mean(proba, axis=0)
         confidence = np.max(mean_proba) * 100
 
-        # print(f"Processed: {hasil}")
+        # label text
+        label_mapping = {
+            0: 'normal',
+            1: 'sedang',
+            2: 'tinggi'
+        }
+
+        hasil_label = label_mapping[int(hasil_akhir)]
 
         return {
             'hasil_prediksi': int(hasil_akhir),
-            'confidence': round(confidence, 2),
+            'confidence': round(float(confidence), 2),
+            'label': hasil_label,
+
             'detail_probabilitas': {
-                'normal': '0',
-                'sedang': round(mean_proba[0] * 100, 2),
-                'tinggi': round(mean_proba[1] * 100, 2)
-            }
+                'normal': round(float(mean_proba[0] * 100), 2),
+                'sedang': round(float(mean_proba[1] * 100), 2),
+                'tinggi': round(float(mean_proba[2] * 100), 2)
+            },
+
+            'total_window': len(hasil),
+
+            'prediksi_per_window': hasil.tolist()
         }
 
     except Exception as e:
