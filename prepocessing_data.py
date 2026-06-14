@@ -2,12 +2,13 @@ import json
 import os
 import numpy as np
 import pandas as pd
+import mysql.connector
 
 # ==========================================
 # CONFIG
 # ==========================================
 
-DATASET_FOLDER = "datasets"
+DATASET_FOLDER = "datasets/new_datasets"
 
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
@@ -19,6 +20,13 @@ WINDOW_SECONDS = 10
 SAMPLING_RATE = 3
 
 WINDOW_SIZE = WINDOW_SECONDS * SAMPLING_RATE
+
+db = mysql.connector.connect(
+  host="localhost",
+  user="root",
+  password="root",
+  database="smart_anxiety_06_14_2026"
+)
 
 # ==========================================
 # AREA GRID
@@ -159,11 +167,26 @@ for file_name in os.listdir(DATASET_FOLDER):
 
             window_features = extract_features(file_path)
 
+            cursor_db = db.cursor()
+            sql = "SELECT skor_kecemasan FROM log_hasil_kecemasan WHERE id_test_sessions = %s"
+            cursor_db.execute(sql, (file_name.split("_")[2].split(".")[0],))
+            result = cursor_db.fetchone()
+
             for features in window_features:
 
                 features['file'] = file_name
+                
+                if result is not None:
+                    skor_kecemasan = result[0]
 
-                features['label'] = "tinggi"
+                    if skor_kecemasan <= 37:
+                        features['label'] = "normal"
+                    elif skor_kecemasan <= 44:
+                        features['label'] = "sedang"
+                    elif skor_kecemasan <= 80:
+                        features['label'] = "tinggi"
+                    else:
+                        features['label'] = "tidak valid"
 
                 all_features.append(features)
 
@@ -175,7 +198,7 @@ for file_name in os.listdir(DATASET_FOLDER):
             # ==================================
             # nanti ganti dari database STAI-T
 
-            features['label'] = "tinggi"
+            # features['label'] = "tinggi"
 
             all_features.append(features)
 
@@ -191,7 +214,7 @@ for file_name in os.listdir(DATASET_FOLDER):
 dataset_df = pd.DataFrame(all_features)
 
 dataset_df.to_csv(
-    "eye_tracking_dataset_2.csv",
+    "eye_tracking_dataset_3.csv",
     index=False
 )
 
