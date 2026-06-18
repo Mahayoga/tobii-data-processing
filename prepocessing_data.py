@@ -153,6 +153,7 @@ def extract_features(file_path):
 # ==========================================
 
 all_features = []
+data_count = 1
 
 for file_name in os.listdir(DATASET_FOLDER):
 
@@ -174,8 +175,8 @@ for file_name in os.listdir(DATASET_FOLDER):
 
             for features in window_features:
 
-                features['file'] = file_name
-                
+                features['responden'] = f"responden_{data_count}"
+
                 if result is not None:
                     skor_kecemasan = result[0]
 
@@ -190,8 +191,8 @@ for file_name in os.listdir(DATASET_FOLDER):
 
                 all_features.append(features)
 
-            # nama file
-            features['file'] = file_name
+            # responden count
+            features['responden'] = f"responden_{data_count}"
 
             # ==================================
             # LABEL MANUAL
@@ -203,6 +204,7 @@ for file_name in os.listdir(DATASET_FOLDER):
             all_features.append(features)
 
             print(f"Processed: {file_name}")
+            data_count += 1
 
         except Exception as e:
             print(f"Error {file_name}: {e}")
@@ -214,7 +216,7 @@ for file_name in os.listdir(DATASET_FOLDER):
 dataset_df = pd.DataFrame(all_features)
 
 dataset_df.to_csv(
-    "eye_tracking_dataset_3.csv",
+    "eye_tracking_dataset_27_responden.csv",
     index=False
 )
 
